@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Watch Together</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="container">
+    <section id="startScreen" class="card">
+      <h1>🍿 Watch Together</h1>
+      <p class="muted">Вставь ссылку на видео — сайт попробует открыть её встроенным плеером.</p>
+
+      <label>Твоё имя</label>
+      <input id="nameInput" placeholder="Например, Никита" maxlength="30">
+
+      <label>Ссылка на видео</label>
+      <input id="videoInput" placeholder="RUTUBE, VK, YouTube или другая ссылка">
+
+      <button id="createBtn">Создать комнату</button>
+      <p id="startError" class="error"></p>
+
+      <p class="muted small">
+        Поддержка зависит от самого сайта: некоторые сервисы запрещают встраивание
+        или управление своим плеером на сторонних страницах.
+      </p>
+    </section>
+
+    <section id="roomScreen" class="hidden">
+      <header class="topbar">
+        <div>
+          <h1>🍿 Watch Together</h1>
+          <span id="roomLabel"></span>
+        </div>
+        <button id="copyBtn" class="secondary">🔗 Скопировать ссылку</button>
+      </header>
+
+      <div class="layout">
+        <section class="videoCard">
+          <div class="videoWrap">
+            <iframe id="player"
+              src=""
+              frameborder="0"
+              allow="autoplay; encrypted-media; clipboard-write; picture-in-picture"
+              allowfullscreen></iframe>
+          </div>
+          <div class="status">
+            <span id="connection">Подключение…</span>
+            <span id="users">👤 0</span>
+          </div>
+        </section>
+
+        <aside class="chat card">
+          <h2>💬 Чат</h2>
+          <div id="messages" class="messages"></div>
+          <form id="chatForm">
+            <input id="chatInput" placeholder="Написать…" autocomplete="off">
+            <button>➤</button>
+          </form>
+        </aside>
+      </div>
+
+      <section class="card controls">
+        <label>Ссылка на видео</label>
+        <div class="row">
+          <input id="roomVideoInput" placeholder="Вставь любую http/https ссылку">
+          <button id="changeVideoBtn">Загрузить</button>
+        </div>
+        <p class="muted small">
+          Для RUTUBE синхронизация Play/Pause/перемотки поддерживается через API.
+          Для остальных сайтов это возможно только если их плеер разрешает внешнее управление.
+        </p>
+      </section>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

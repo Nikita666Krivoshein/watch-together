@@ -87,7 +87,11 @@ io.on("connection", (socket) => {
       room.position = command.time;
     }
 
-    socket.to(roomId).emit("remote-command", command);
+    socket.to(roomId).emit("remote-command", {
+      ...command,
+      serverAt: Date.now(),
+      actionId: `${socket.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    });
   });
 
   socket.on("sync-position", ({ roomId, time, sentAt, playing }) => {
@@ -100,7 +104,8 @@ io.on("connection", (socket) => {
       type: "sync",
       time,
       sentAt: Number.isFinite(sentAt) ? sentAt : Date.now(),
-      playing: !!playing
+      playing: !!playing,
+      serverAt: Date.now()
     });
   });
 

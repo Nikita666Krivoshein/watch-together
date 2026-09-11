@@ -28,6 +28,9 @@ let lastTimeStamp = performance.now();
 let lastLocalAction = 0;
 let roomState = null;
 let seekCandidate = null;
+let remoteActionUntil = 0;
+let lastRemoteActionId = "";
+let lastHeartbeat = 0;
 
 function randomRoomId() { return Math.random().toString(36).slice(2, 8).toUpperCase(); }
 function getRoomFromUrl() { return new URLSearchParams(location.search).get("room"); }
@@ -77,9 +80,15 @@ function rutubeCommand(command) {
 }
 
 function sendPlayerCommand(command) {
-  if (applyingRemote || !roomId || !isRutubeUrl(currentVideoUrl)) return;
+  if (applyingRemote || performance.now() < remoteActionUntil || !roomId || !isRutubeUrl(currentVideoUrl)) return;
   lastLocalAction=performance.now();
-  socket.emit("player-command",{roomId,command});
+  socket.emit("player-command",{
+    roomId,
+    command: {
+      ...command,
+      clientAt: Date.now()
+    }
+  });
 }
 
 function getEstimatedTime() {
@@ -97,59 +106,70 @@ function setLocalTime(time) {
 }
 
 function setRemotePlayback(command) {
-  const t=Math.max(0,Number(command.time)||0);
-  const networkDelay = command.sentAt ? Math.max(0, (Date.now()-Number(command.sentAt))/1000) : 0;
-  const target = command.type === "sync" && command.playing ? t + Math.min(networkDelay, 1.5) : t;
+  if (!rutubeReady) return;
+  if (command.actionId && command.actionId === lastRemoteActionId) return;
+  if (command.actionId) lastRemoteActionId = command.actionId;
 
-  applyingRemote=true;
-  lastLocalAction=performance.now();
+  const t = Math.max(0, Number(command.time) || 0);
+  const networkDelay = command.sentAt ? Math.max(0, (Date.now() - Number(command.sentAt)) / 1000) : 0;
+  const target = command.type === "sync" && command.playing
+    ? t + Math.min(networkDelay, 1.0)
+    : t;
 
-  if(command.type === "pause") {
-    // Pause FIRST. This prevents setCurrentTime from leaving the remote player playing.
-    localPlayerState="paused";
+  applyingRemote = true;
+  remoteActionUntil = performance.now() + 2200;
+  lastLocalAction = performance.now();
+
+  if (command.type === "pause") {
+    localPlayerState = "paused";
+    // RUTUBE requires pause after the player is ready. Do not leave the remote
+    // iframe in a playing state while changing its position.
     rutubeCommand({type:"player:pause",data:{}});
+    setTimeout(() => rutubeCommand({type:"player:pause",data:{}}), 70);
     setTimeout(() => {
       setLocalTime(target);
       rutubeCommand({type:"player:pause",data:{}});
-    }, 80);
-    setStatus("Синхронизировано ⏸");
-  } else if(command.type === "play") {
-    localPlayerState="playing";
+    }, 120);
+    setStatus("Пауза синхронизирована ⏸");
+  } else if (command.type === "play") {
+    localPlayerState = "playing";
     setLocalTime(target);
-    setTimeout(() => rutubeCommand({type:"player:play",data:{}}), 80);
-    setStatus("Синхронизировано ▶");
-  } else if(command.type === "seek") {
-    // A manual seek is authoritative, but do not change play/pause state.
+    // Start only after the position is set.
+    setTimeout(() => rutubeCommand({type:"player:play",data:{}}), 120);
+    setStatus("Воспроизведение синхронизировано ▶");
+  } else if (command.type === "seek") {
+    const wasPlaying = localPlayerState === "playing";
     setLocalTime(target);
-    if (localPlayerState === "playing") {
-      setTimeout(() => rutubeCommand({type:"player:play",data:{}}), 60);
-    }
-    setStatus("Синхронизировано");
-  } else if(command.type === "sync") {
-    if (command.playing) {
-      localPlayerState="playing";
-      const localNow = localPlayerState === "playing"
-        ? lastPlayerTime + (performance.now()-lastTimeStamp)/1000
-        : lastPlayerTime;
-      const drift = Math.abs(target-localNow);
-      // Do NOT seek every heartbeat. That is what caused the second device to lag/stutter.
-      if (drift > 0.65) {
+    if (wasPlaying) setTimeout(() => rutubeCommand({type:"player:play",data:{}}), 120);
+    setStatus("Перемотка синхронизирована");
+  } else if (command.type === "sync") {
+    const remotePlaying = !!command.playing;
+    const localNow = getEstimatedTime();
+    const drift = Math.abs(target - localNow);
+
+    if (remotePlaying) {
+      if (localPlayerState !== "playing") {
+        localPlayerState = "playing";
+        setLocalTime(target);
+        setTimeout(() => rutubeCommand({type:"player:play",data:{}}), 100);
+      } else if (drift > 1.25) {
+        // Correct only real drift; do not constantly seek and cause stutter.
         setLocalTime(target);
         rutubeCommand({type:"player:play",data:{}});
       }
     } else {
-      localPlayerState="paused";
+      localPlayerState = "paused";
       rutubeCommand({type:"player:pause",data:{}});
-      setLocalTime(target);
-      rutubeCommand({type:"player:pause",data:{}});
+      if (drift > 0.25) setLocalTime(target);
+      setTimeout(() => rutubeCommand({type:"player:pause",data:{}}), 80);
     }
     setStatus("Синхронизировано");
   }
 
-  setTimeout(()=>{
-    applyingRemote=false;
-    lastTimeStamp=performance.now();
-  },500);
+  setTimeout(() => {
+    applyingRemote = false;
+    lastTimeStamp = performance.now();
+  }, 1800);
 }
 
 window.addEventListener("message", event => {
@@ -182,7 +202,7 @@ window.addEventListener("message", event => {
     localPlayerState = nextState;
     lastTimeStamp = performance.now();
 
-    if(applyingRemote) return;
+    if(applyingRemote || performance.now() < remoteActionUntil) return;
 
     // The currentTime event normally arrives continuously. Use our latest timestamp.
     // A state change itself is authoritative for play/pause.
@@ -198,7 +218,7 @@ window.addEventListener("message", event => {
     if(!Number.isFinite(time)) return;
     const now=performance.now();
 
-    if(!applyingRemote && localPlayerState === "playing" && now-lastLocalAction>700) {
+    if(!applyingRemote && now >= remoteActionUntil && localPlayerState === "playing" && now-lastLocalAction>700) {
       const elapsed=(now-lastTimeStamp)/1000;
       const expected=lastPlayerTime+elapsed;
       const jump=Math.abs(time-expected);
@@ -235,15 +255,15 @@ socket.on("remote-command",setRemotePlayback);
 socket.on("chat-message",addMessage);
 socket.on("users",count=>usersLabel.textContent=`👤 ${count}`);
 
-// The controller sends a heartbeat, but receivers only correct large drift.
-// This prevents the second device from constantly jumping/stuttering.
+// Light heartbeat: every 2 seconds. Receivers correct only real drift.
 setInterval(()=>{
-  if(!roomId||!isRutubeUrl(currentVideoUrl)||!rutubeReady||applyingRemote||localPlayerState!=="playing") return;
-  if(performance.now()-lastLocalAction<500) return;
-  const elapsed=(performance.now()-lastTimeStamp)/1000;
-  const current=lastPlayerTime+elapsed;
+  if(!roomId || !isRutubeUrl(currentVideoUrl) || !rutubeReady || applyingRemote || localPlayerState!=="playing") return;
+  if(performance.now()-lastLocalAction<900) return;
+  if(performance.now()-lastHeartbeat<1800) return;
+  lastHeartbeat=performance.now();
+  const current=getEstimatedTime();
   socket.emit("sync-position",{roomId,time:current,sentAt:Date.now(),playing:true});
-},500);
+},200);
 
 const existingRoom=getRoomFromUrl();
 if(existingRoom){const savedName=localStorage.getItem("watchTogetherName")||"";const name=savedName||prompt("Введите ваше имя:")||"Гость";localStorage.setItem("watchTogetherName",name);joinRoom(existingRoom,name);}

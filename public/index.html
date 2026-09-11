@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Watch Together</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="app">
+    <section id="startScreen" class="card start-card">
+      <h1>Watch Together</h1>
+      <p class="subtitle">Смотрите видео вместе в одной комнате.</p>
+
+      <label for="nameInput">Ваше имя</label>
+      <input id="nameInput" maxlength="30" placeholder="Например, Никита">
+
+      <label for="videoInput">Ссылка на видео</label>
+      <input id="videoInput" type="url" placeholder="RUTUBE, YouTube или другая ссылка">
+
+      <button id="createBtn" class="primary">Создать комнату</button>
+
+      <p class="hint">
+        После создания комнаты можно отправить ссылку другому человеку.
+      </p>
+    </section>
+
+    <section id="roomScreen" class="room hidden">
+      <header class="topbar">
+        <div>
+          <h1>Watch Together</h1>
+          <span id="roomLabel" class="room-label"></span>
+        </div>
+
+        <div class="top-actions">
+          <span id="usersLabel">👤 1</span>
+          <button id="copyBtn">Скопировать ссылку</button>
+        </div>
+      </header>
+
+      <div class="layout">
+        <section class="video-card card">
+          <div class="video-wrap">
+            <iframe
+              id="videoFrame"
+              title="Видео"
+              allow="autoplay; fullscreen; picture-in-picture"
+              allowfullscreen>
+            </iframe>
+            <div id="videoPlaceholder" class="placeholder">
+              <div>
+                <strong>Видео ещё не выбрано</strong>
+                <p>Вставьте ссылку ниже.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="video-controls">
+            <input id="changeVideoInput" type="url" placeholder="Вставьте ссылку на видео">
+            <button id="changeVideoBtn" class="primary">Открыть</button>
+          </div>
+
+          <div id="status" class="status">Готово</div>
+        </section>
+
+        <aside class="chat card">
+          <h2>Чат</h2>
+          <div id="messages" class="messages"></div>
+
+          <form id="chatForm" class="chat-form">
+            <input id="chatInput" maxlength="500" placeholder="Написать сообщение..." autocomplete="off">
+            <button type="submit">➤</button>
+          </form>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

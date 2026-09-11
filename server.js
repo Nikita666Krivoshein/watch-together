@@ -1,28 +1,120 @@
-WATCH TOGETHER — UNIVERSAL VIDEO LINKS
-========================================
+const path = require("path");
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
 
-В этой версии поле принимает любую обычную ссылку http:// или https://.
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+const rooms = new Map();
 
-Автоматические преобразования:
-- RUTUBE -> официальный embed-плеер
-- YouTube / youtu.be -> embed-плеер
-- VK и другие сайты -> пробуем открыть исходную ссылку в iframe
+app.use(express.static(path.join(__dirname, "public")));
 
-ВАЖНО:
-"Любая ссылка" не означает, что любой сайт разрешит встроенный просмотр.
-Это ограничение браузера и самого видеосервиса. Если сайт запрещает iframe
-через X-Frame-Options/CSP или требует свой плеер, наш сайт не сможет это обойти.
+function getRoom(id) {
+  if (!rooms.has(id)) {
+    rooms.set(id, {
+      videoUrl: "",
+      position: 0,
+      playing: false,
+      messages: []
+    });
+  }
+  return rooms.get(id);
+}
 
-Также полное управление Play/Pause/перемоткой возможно только у сервисов,
-которые предоставляют API для управления встроенным плеером. Для RUTUBE такая
-схема предусмотрена. Для других сервисов поддержку можно добавлять отдельно.
+function cleanRoomId(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, "")
+    .slice(0, 32);
+}
 
-ЗАПУСК:
-1. Открой CMD/PowerShell в папке проекта.
-2. npm.cmd install
-3. npm.cmd start
-4. Открой http://localhost:3000
+io.on("connection", (socket) => {
+  socket.on("join-room", ({ roomId, name }) => {
+    roomId = cleanRoomId(roomId);
+    if (!roomId) return;
 
-Для остановки сервера нажми Ctrl+C.
+    socket.join(roomId);
+    socket.data.roomId = roomId;
+    socket.data.name = String(name || "Гость").trim().slice(0, 30) || "Гость";
 
-После проверки локальной версии можно сделать бесплатный онлайн-хостинг.
+    const room = getRoom(roomId);
+
+    socket.emit("room-state", {
+      videoUrl: room.videoUrl,
+      position: room.position,
+      playing: room.playing,
+      messages: room.messages
+    });
+
+    io.to(roomId).emit(
+      "users",
+      io.sockets.adapter.rooms.get(roomId)?.size || 1
+    );
+  });
+
+  socket.on("set-video", ({ roomId, videoUrl }) => {
+    roomId = cleanRoomId(roomId);
+    const room = getRoom(roomId);
+    room.videoUrl = String(videoUrl || "").trim();
+    room.position = 0;
+    room.playing = false;
+
+    io.to(roomId).emit("remote-video", { videoUrl: room.videoUrl });
+  });
+
+  socket.on("player-command", ({ roomId, command }) => {
+    roomId = cleanRoomId(roomId);
+    const room = getRoom(roomId);
+    if (!command || typeof command.type !== "string") return;
+
+    if (command.type === "play") {
+      room.playing = true;
+      if (Number.isFinite(command.time)) room.position = command.time;
+    }
+
+    if (command.type === "pause") {
+      room.playing = false;
+      if (Number.isFinite(command.time)) room.position = command.time;
+    }
+
+    if (command.type === "seek" && Number.isFinite(command.time)) {
+      room.position = command.time;
+    }
+
+    socket.to(roomId).emit("remote-command", command);
+  });
+
+  socket.on("chat-message", ({ roomId, text }) => {
+    roomId = cleanRoomId(roomId);
+    const clean = String(text || "").trim().slice(0, 500);
+    if (!clean) return;
+
+    const room = getRoom(roomId);
+    const message = {
+      name: socket.data.name || "Гость",
+      text: clean,
+      time: Date.now()
+    };
+
+    room.messages.push(message);
+    if (room.messages.length > 100) room.messages.shift();
+
+    io.to(roomId).emit("chat-message", message);
+  });
+
+  socket.on("disconnect", () => {
+    const roomId = socket.data.roomId;
+    if (!roomId) return;
+
+    const count = io.sockets.adapter.rooms.get(roomId)?.size || 0;
+    io.to(roomId).emit("users", count);
+  });
+});
+
+const PORT = process.env.PORT || 3000;
+
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Watch Together запущен на порту ${PORT}`);
+});

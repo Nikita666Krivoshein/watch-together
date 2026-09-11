@@ -17,7 +17,8 @@ function getRoom(id) {
       position: 0,
       playing: false,
       messages: [],
-      controllerId: null
+      controllerId: null,
+      stateVersion: 0
     });
   }
   return rooms.get(id);
@@ -29,6 +30,16 @@ function cleanRoomId(value) {
     .toUpperCase()
     .replace(/[^A-Z0-9_-]/g, "")
     .slice(0, 32);
+}
+
+function emitAuthoritative(roomId, room, originId = null) {
+  io.to(roomId).emit("authoritative-state", {
+    position: room.position,
+    playing: room.playing,
+    originId,
+    stateVersion: ++room.stateVersion,
+    serverAt: Date.now()
+  });
 }
 
 io.on("connection", (socket) => {
@@ -46,7 +57,8 @@ io.on("connection", (socket) => {
       videoUrl: room.videoUrl,
       position: room.position,
       playing: room.playing,
-      messages: room.messages
+      messages: room.messages,
+      stateVersion: room.stateVersion
     });
 
     io.to(roomId).emit(
@@ -87,11 +99,13 @@ io.on("connection", (socket) => {
       room.position = command.time;
     }
 
+    const actionId = `${socket.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     socket.to(roomId).emit("remote-command", {
       ...command,
       serverAt: Date.now(),
-      actionId: `${socket.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+      actionId
     });
+    emitAuthoritative(roomId, room, socket.id);
   });
 
   socket.on("sync-position", ({ roomId, time, sentAt, playing }) => {
@@ -100,13 +114,7 @@ io.on("connection", (socket) => {
     if (room.controllerId !== socket.id || !Number.isFinite(time)) return;
     room.position = time;
     room.playing = !!playing;
-    socket.to(roomId).emit("remote-command", {
-      type: "sync",
-      time,
-      sentAt: Number.isFinite(sentAt) ? sentAt : Date.now(),
-      playing: !!playing,
-      serverAt: Date.now()
-    });
+    emitAuthoritative(roomId, room, socket.id);
   });
 
   socket.on("chat-message", ({ roomId, text }) => {
@@ -140,6 +148,16 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("users", count);
   });
 });
+
+
+// Keep every connected player aligned with the room's authoritative state.
+// This is especially important while paused: no client can accidentally resume
+// because of a stale player:changeState event.
+setInterval(() => {
+  for (const [roomId, room] of rooms) {
+    if (room.controllerId) emitAuthoritative(roomId, room, room.controllerId);
+  }
+}, 700);
 
 const PORT = process.env.PORT || 3000;
 

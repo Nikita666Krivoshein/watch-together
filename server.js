@@ -61,6 +61,7 @@ io.on("connection", (socket) => {
     room.videoUrl = String(videoUrl || "").trim();
     room.position = 0;
     room.playing = false;
+    room.controllerId = socket.id;
 
     io.to(roomId).emit("remote-video", { videoUrl: room.videoUrl });
   });
@@ -124,6 +125,11 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     const roomId = socket.data.roomId;
     if (!roomId) return;
+
+    const room = rooms.get(roomId);
+    if (room && room.controllerId === socket.id) {
+      room.controllerId = null;
+    }
 
     const count = io.sockets.adapter.rooms.get(roomId)?.size || 0;
     io.to(roomId).emit("users", count);

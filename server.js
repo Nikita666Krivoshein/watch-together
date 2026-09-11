@@ -70,6 +70,8 @@ io.on("connection", (socket) => {
     const room = getRoom(roomId);
     if (!command || typeof command.type !== "string") return;
 
+    room.controllerId = socket.id;
+
     if (command.type === "play") {
       room.playing = true;
       if (Number.isFinite(command.time)) room.position = command.time;
@@ -87,11 +89,18 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("remote-command", command);
   });
 
-  socket.on("sync-position", ({ roomId, time }) => {
+  socket.on("sync-position", ({ roomId, time, sentAt, playing }) => {
+    roomId = cleanRoomId(roomId);
     const room = getRoom(roomId);
     if (room.controllerId !== socket.id || !Number.isFinite(time)) return;
     room.position = time;
-    socket.to(roomId).emit("remote-command", { type: "sync", time });
+    room.playing = !!playing;
+    socket.to(roomId).emit("remote-command", {
+      type: "sync",
+      time,
+      sentAt: Number.isFinite(sentAt) ? sentAt : Date.now(),
+      playing: !!playing
+    });
   });
 
   socket.on("chat-message", ({ roomId, text }) => {

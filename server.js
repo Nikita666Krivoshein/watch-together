@@ -16,7 +16,8 @@ function getRoom(id) {
       videoUrl: "",
       position: 0,
       playing: false,
-      messages: []
+      messages: [],
+      controllerId: null
     });
   }
   return rooms.get(id);
@@ -84,6 +85,13 @@ io.on("connection", (socket) => {
     }
 
     socket.to(roomId).emit("remote-command", command);
+  });
+
+  socket.on("sync-position", ({ roomId, time }) => {
+    const room = getRoom(roomId);
+    if (room.controllerId !== socket.id || !Number.isFinite(time)) return;
+    room.position = time;
+    socket.to(roomId).emit("remote-command", { type: "sync", time });
   });
 
   socket.on("chat-message", ({ roomId, text }) => {
